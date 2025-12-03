@@ -11,13 +11,14 @@ import {
   Calendar, Check, MapPin, Tent, Home, 
   Image as ImageIcon, Loader2, LogOut,
   ChevronLeft, ChevronRight, Map, Facebook, Target, Bike, Trophy,
-  Waves, Phone, Mail, Settings, Trash2, Edit2, X, AlertTriangle, WifiOff
+  Waves, Phone, Settings, Trash2, Edit2, X, WifiOff, AlertTriangle, Key
 } from 'lucide-react';
 
 // --- 1. SETUP FIREBASE CONFIGURATION ---
 let firebaseConfig;
 let appId = 'default-app-id';
 
+// Check environment
 try {
   if (typeof __firebase_config !== 'undefined') {
     firebaseConfig = JSON.parse(__firebase_config);
@@ -29,20 +30,32 @@ try {
   console.log("Not in preview environment");
 }
 
+// Fallback to manual config
 if (!firebaseConfig) {
   firebaseConfig = {
-    apiKey: "YOUR_API_KEY_HERE", 
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+     apiKey: "AIzaSyASfi3V5U-1l_Wtny6lZlFIZO8-iFgJ_IY",
+  authDomain: "archatara-booking.firebaseapp.com",
+  projectId: "archatara-booking",
+  storageBucket: "archatara-booking.firebasestorage.app",
+  messagingSenderId: "1077632757256",
+  appId: "1:1077632757256:web:83e7aeff4f49d34011abbd"
   };
 }
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+// --- SYSTEM CHECK: ตรวจสอบว่าใส่คีย์หรือยัง ---
+const isConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE";
+
+// Initialize Firebase only if configured or in preview
+let app, auth, db;
+if (isConfigured || typeof __firebase_config !== 'undefined') {
+  try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  } catch (e) {
+    console.error("Firebase Init Error:", e);
+  }
+}
 
 // Helper for Firestore Paths
 const getPath = (collectionName) => {
@@ -54,13 +67,9 @@ const getPath = (collectionName) => {
    }
 };
 
-// --- 2. CUSTOM ASSETS (ส่วนจัดการรูปภาพ) ---
+// --- 2. CUSTOM ASSETS ---
 const ASSETS = {
-  // ⚠️ คำแนะนำ: ลิงก์จาก Facebook ต้องคลิกขวาแล้วเลือก "Copy Image Address" เท่านั้น (ลิงก์จะยาวๆ)
-  // ให้เอาลิงก์ใหม่ที่ได้ มาวางทับลิงก์ Unsplash ด้านล่างนี้ครับ
   HERO_IMAGE: "https://scontent.fbkk5-3.fna.fbcdn.net/v/t39.30808-6/475465617_122184686294143762_5475733023484969916_n.jpg?stp=cp6_dst-jpg_tt6&_nc_cat=105&ccb=1-7&_nc_sid=833d8c&_nc_ohc=oyhzG2X31XQQ7kNvwELTmEA&_nc_oc=Adkh2kfOoH2-_gl9_8swGGDhq9UsZR0d9KM-PEMxrPHs5NcG6KIcaJgMO8BP81zdjDY&_nc_zt=23&_nc_ht=scontent.fbkk5-3.fna&_nc_gid=x9rDQaqWTP-xnm8wSe-aOQ&oh=00_AfmoTKpwVOQJOLVMaN-6ehHj9fSpfPvGt1q3-KJCYv2lTQ&oe=6935F2E8", 
-  
-  // ใส่ลิงก์โลโก้ตรงนี้ (ถ้ามี)
   LOGO_URL: "", 
 };
 
@@ -77,13 +86,10 @@ const ACTIVITIES = [
   { id: 3, title: "ขี่ม้า Horse Riding", icon: Trophy, color: "bg-amber-400", prices: ["30 นาที 700฿", "60 นาที 1,200฿"] }
 ];
 
-// --- MOCK DATA (Fallback) ---
 const MOCK_BOOKINGS = [
-  { id: 'm1', date: new Date().toISOString().split('T')[0], type: 'glamping', unitId: 'G1', customerName: 'คุณสมชาย (Demo)', customerPhone: '081-234-5678', status: 'confirmed', createdAt: { seconds: Date.now()/1000 } },
-  { id: 'm2', date: new Date().toISOString().split('T')[0], type: 'camping', unitId: 'C3', customerName: 'คุณสมหญิง (Demo)', customerPhone: '089-999-8888', status: 'pending', createdAt: { seconds: Date.now()/1000 } }
+  { id: 'm1', date: new Date().toISOString().split('T')[0], type: 'glamping', unitId: 'G1', customerName: 'คุณสมชาย (Demo)', customerPhone: '081-234-5678', status: 'confirmed', createdAt: { seconds: Date.now()/1000 } }
 ];
 
-// --- MOCK EMAIL SERVICE ---
 const sendEmail = (to, subject, body) => {
   console.log(`📧 [Email Simulation] To: ${to}\nSubject: ${subject}\nBody: ${body}`);
 };
@@ -95,18 +101,37 @@ export default function ArchaTaraApp() {
   const [bookings, setBookings] = useState([]);
   const [settings, setSettings] = useState({ weekendOnly: false, adminEmail: 'admin@archatara.com' });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null); 
-  const [isOfflineMode, setIsOfflineMode] = useState(false); // New state for fallback
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+
+  // 🛑 SAFETY GUARD: ถ้ายังไม่ใส่ API Key ให้แสดงหน้าแจ้งเตือนแทนจอขาว
+  if (!isConfigured && typeof __firebase_config === 'undefined') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center border border-orange-200">
+          <div className="w-20 h-20 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Key size={40} />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">เกือบเสร็จแล้ว!</h2>
+          <p className="text-slate-500 mb-6">
+            กรุณาเปิดไฟล์ <code>src/App.jsx</code> และนำค่า <strong>Config จาก Firebase</strong> มาใส่แทนที่คำว่า <code>YOUR_API_KEY_HERE</code> เพื่อให้แอปทำงานได้
+          </p>
+          <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="inline-block bg-slate-800 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-900 transition">
+            ไปที่ Firebase Console
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   // Auth
   useEffect(() => {
+    if (!auth) return;
     const initAuth = async () => {
         try {
           if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
           else await signInAnonymously(auth);
         } catch (err) {
           console.error("Auth Error:", err);
-          // Don't block app, just log
         }
     };
     initAuth();
@@ -115,41 +140,39 @@ export default function ArchaTaraApp() {
 
   // Fetch Data
   useEffect(() => {
-    if (!user) return;
+    if (!user || !db) return;
     
     const bookingPath = getPath('archatara_bookings');
-    // Basic validation
     if (bookingPath.length % 2 === 0) {
-       console.error("Invalid path segments:", bookingPath);
        setIsOfflineMode(true);
        setBookings(MOCK_BOOKINGS);
        setLoading(false);
        return;
     }
 
-    const qBookings = query(collection(db, ...bookingPath), orderBy('createdAt', 'desc'));
-    
-    const unsubBookings = onSnapshot(qBookings, (snap) => {
-      setBookings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    try {
+      const qBookings = query(collection(db, ...bookingPath), orderBy('createdAt', 'desc'));
+      const unsubBookings = onSnapshot(qBookings, (snap) => {
+        setBookings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+        setIsOfflineMode(false);
+      }, (err) => {
+        console.error("Firestore Error:", err);
+        setIsOfflineMode(true);
+        setBookings(MOCK_BOOKINGS);
+        setLoading(false);
+      });
+      return () => unsubBookings();
+    } catch (e) {
+      console.log("Setup error", e);
       setLoading(false);
-      setIsOfflineMode(false); // If successful, ensure offline mode is off
-    }, (err) => {
-      console.error("Firestore Error, switching to Offline Mode:", err);
-      // Switch to Offline Mode automatically on permission error
-      setIsOfflineMode(true);
-      setBookings(MOCK_BOOKINGS);
-      setLoading(false);
-    });
-
-    return () => unsubBookings();
+    }
   }, [user]);
 
-  // Handle Offline Actions
   const handleOfflineAction = (action, data) => {
     if (action === 'add') {
       const newBooking = { ...data, id: `mock_${Date.now()}`, status: 'pending', createdAt: { seconds: Date.now()/1000 } };
       setBookings([newBooking, ...bookings]);
-      return newBooking;
     } else if (action === 'update') {
       setBookings(bookings.map(b => b.id === data.id ? { ...b, ...data.updates } : b));
     } else if (action === 'delete') {
@@ -161,14 +184,11 @@ export default function ArchaTaraApp() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-orange-200 flex flex-col relative">
-      {/* Offline Banner */}
       {isOfflineMode && (
         <div className="bg-orange-100 text-orange-700 px-4 py-2 text-sm text-center font-medium flex items-center justify-center gap-2 border-b border-orange-200">
-          <WifiOff size={16} />
-          Demo Mode: ไม่สามารถเชื่อมต่อฐานข้อมูลได้ (Permission Denied) - ข้อมูลจะถูกรีเซ็ตเมื่อรีเฟรช
+          <WifiOff size={16} /> Demo Mode: เชื่อมต่อฐานข้อมูลไม่ได้ (Permission/Config Error)
         </div>
       )}
-
       <Header view={view} setView={setView} />
       <main className="max-w-4xl mx-auto p-4 flex-grow w-full">
         {view === 'home' && <HomeView setView={setView} />}
@@ -181,8 +201,10 @@ export default function ArchaTaraApp() {
   );
 }
 
-// --- SUB-COMPONENTS ---
-
+// ... (Sub-components remain same, but ensure they are included in full file) ...
+// เพื่อความกระชับ ผมละส่วน Sub-components ไว้เนื่องจากเหมือนเดิม
+// **สำคัญ** เวลา Copy ไปใช้จริง ให้เอา Sub-components จากไฟล์เวอร์ชันก่อนหน้ามาต่อท้ายด้วยนะครับ
+// หรือถ้าต้องการไฟล์เต็มๆ แจ้งผมได้เลยครับ
 const Header = ({ view, setView }) => (
   <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-sky-100 shadow-sm">
     <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -322,11 +344,9 @@ function BookingView({ user, bookings, setView, settings, isOfflineMode, onOffli
       };
 
       if (isOfflineMode) {
-        // Offline Mock Action
         onOfflineAction('add', data);
-        await new Promise(r => setTimeout(r, 800)); // Fake delay
+        await new Promise(r => setTimeout(r, 800)); 
       } else {
-        // Real Firestore
         const path = getPath('archatara_bookings'); 
         await addDoc(collection(db, ...path), {
           ...data, status: 'pending', createdAt: serverTimestamp()
