@@ -33,11 +33,11 @@ try {
 if (!firebaseConfig) {
   firebaseConfig = {
     apiKey: "AIzaSyASfi3V5U-1l_Wtny6lZlFIZO8-iFgJ_IY",
-  authDomain: "archatara-booking.firebaseapp.com",
-  projectId: "archatara-booking",
-  storageBucket: "archatara-booking.firebasestorage.app",
-  messagingSenderId: "1077632757256",
-  appId: "1:1077632757256:web:83e7aeff4f49d34011abbd"
+    authDomain: "archatara-booking.firebaseapp.com",
+    projectId: "archatara-booking",
+    storageBucket: "archatara-booking.firebasestorage.app",
+    messagingSenderId: "1077632757256",
+    appId: "1:1077632757256:web:83e7aeff4f49d34011abbd"
   };
 }
 
@@ -127,13 +127,22 @@ export default function ArchaTaraApp() {
       setLoading(false);
       setIsOfflineMode(false);
     }, (err) => {
-      console.error("Firestore Error:", err);
+      // Handle Permission Error Gracefully
+      if (err.code === 'permission-denied') {
+        console.warn("Firestore permission denied. Switching to offline demo mode.");
+      } else {
+        console.error("Firestore Error:", err);
+      }
       setIsOfflineMode(true);
       setLoading(false);
     });
 
     const settingsPath = getPath('archatara_settings');
-    getDoc(doc(db, ...settingsPath, 'config')).then(s => s.exists() && setSettings(s.data())).catch(() => {});
+    getDoc(doc(db, ...settingsPath, 'config'))
+      .then(s => s.exists() && setSettings(s.data()))
+      .catch((err) => {
+        if (err.code !== 'permission-denied') console.warn("Settings fetch error:", err);
+      });
 
     return () => unsubBookings();
   }, [user]);
