@@ -14,37 +14,50 @@ import {
   Waves, Phone, Settings, Trash2, Edit2, X, AlertTriangle, WifiOff, Download, RefreshCw
 } from 'lucide-react';
 
-// --- 1. CONFIGURATION SECTION ---
-let firebaseConfig;
+// --- 1. CONFIGURATION SECTION & INITIALIZATION ---
+let app, auth, db;
+let initializationError = null;
 let appId = 'default-app-id';
 
 try {
-  if (typeof __firebase_config !== 'undefined') {
-    firebaseConfig = JSON.parse(__firebase_config);
-  }
-  if (typeof __app_id !== 'undefined') {
-    appId = __app_id;
-  }
-} catch (e) {
-  console.log("Not in preview environment");
-}
+  let firebaseConfig;
 
-// ⚠️ IMPORTANT: ตรวจสอบ Config ของคุณที่นี่ ⚠️
-if (!firebaseConfig) {
-  firebaseConfig = {
+  // 1.1 Attempt to load config from Environment (Preview Mode)
+  try {
+    if (typeof __firebase_config !== 'undefined') {
+      firebaseConfig = JSON.parse(__firebase_config);
+    }
+    if (typeof __app_id !== 'undefined') {
+      appId = __app_id;
+    }
+  } catch (e) {
+    console.log("Not in preview environment");
+  }
+
+  // 1.2 Fallback to Manual Config (Production Mode)
+  // ⚠️ IMPORTANT: ตรวจสอบ Config ของคุณที่นี่ ⚠️
+  if (!firebaseConfig) {
+    firebaseConfig = {
     apiKey: "AIzaSyASfi3V5U-1l_Wtny6lZlFIZO8-iFgJ_IY",
-    authDomain: "archatara-booking.firebaseapp.com",
-    projectId: "archatara-booking",
-    storageBucket: "archatara-booking.firebasestorage.app",
-    messagingSenderId: "1077632757256",
-    appId: "1:1077632757256:web:83e7aeff4f49d34011abbd"
-  };
+  authDomain: "archatara-booking.firebaseapp.com",
+  projectId: "archatara-booking",
+  storageBucket: "archatara-booking.firebasestorage.app",
+  messagingSenderId: "1077632757256",
+  appId: "1:1077632757256:web:83e7aeff4f49d34011abbd"
+    };
+  }
+
+  // 1.3 Initialize Firebase safely
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+
+} catch (e) {
+  console.error("Critical Initialization Error:", e);
+  initializationError = e;
 }
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
+// Helper for Firestore Paths
 const getPath = (collectionName) => {
    if (typeof __firebase_config !== 'undefined') {
      const safeAppId = appId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -103,6 +116,23 @@ export default function ArchaTaraApp() {
   const [loading, setLoading] = useState(true);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
 
+  // 🛑 1. CRITICAL ERROR CHECK 🛑
+  if (initializationError) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-red-50 p-6 text-center font-sans">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md border border-red-200">
+          <AlertTriangle size={48} className="text-red-500 mx-auto mb-4"/>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">เกิดข้อผิดพลาดร้ายแรง (App Crash)</h2>
+          <p className="text-slate-500 mb-4 text-sm">ไม่สามารถเริ่มต้นแอปพลิเคชันได้ เนื่องจากการตั้งค่า Firebase ไม่ถูกต้อง</p>
+          <div className="bg-slate-100 p-3 rounded text-xs text-left overflow-auto max-h-32 mb-4 font-mono text-red-600 border border-slate-200">
+            {initializationError.message || JSON.stringify(initializationError)}
+          </div>
+          <p className="text-xs text-slate-400">คำแนะนำ: ตรวจสอบตัวแปร firebaseConfig ในไฟล์ src/App.jsx</p>
+        </div>
+      </div>
+    );
+  }
+
   // Auth
   useEffect(() => {
     const initAuth = async () => {
@@ -111,13 +141,17 @@ export default function ArchaTaraApp() {
           else await signInAnonymously(auth);
         } catch (err) { console.error("Auth Error:", err); }
     };
-    initAuth();
-    return onAuthStateChanged(auth, setUser);
+    if (auth) {
+        initAuth();
+        return onAuthStateChanged(auth, setUser);
+    } else {
+        setLoading(false); // Stop loading if auth is missing (will show offline mode)
+    }
   }, []);
 
   // Fetch Data
   useEffect(() => {
-    if (!user) return;
+    if (!user || !db) return;
     const bookingPath = getPath('archatara_bookings');
     if (bookingPath.length % 2 === 0) { setIsOfflineMode(true); setLoading(false); return; }
 
@@ -127,11 +161,11 @@ export default function ArchaTaraApp() {
       setLoading(false);
       setIsOfflineMode(false);
     }, (err) => {
-      // Improved Permission Handling: Catch both code and message content
-      const isPermissionError = err.code === 'permission-denied' || err.message.includes('Missing or insufficient permissions');
+      // Improved Permission Handling
+      const isPermissionError = err.code === 'permission-denied' || err.message?.includes('Missing or insufficient permissions');
       
       if (isPermissionError) {
-        console.warn("⚠️ Demo Mode Activated: Database permission denied (Rules might be locked).");
+        console.warn("⚠️ Demo Mode Activated: Database permission denied.");
       } else {
         console.error("Firestore Error:", err);
       }
@@ -143,7 +177,6 @@ export default function ArchaTaraApp() {
     getDoc(doc(db, ...settingsPath, 'config'))
       .then(s => s.exists() && setSettings(s.data()))
       .catch((err) => {
-        // Suppress permission errors for settings fetch too
         const isPermissionError = err.code === 'permission-denied' || err.message?.includes('Missing or insufficient permissions');
         if (!isPermissionError) console.warn("Settings fetch error:", err);
       });
