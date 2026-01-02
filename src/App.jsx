@@ -598,6 +598,4 @@ const AdminCalendar = ({ bookings }) => {
       <div className="mt-4 flex gap-4 text-xs text-slate-500"><div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-400"></div> ยืนยันแล้ว</div><div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-orange-300"></div> รอตรวจสอบ</div></div>
     </div>
   );
-
 };
-npm install lucide-react
