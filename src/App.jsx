@@ -15,9 +15,6 @@ import {
 } from 'lucide-react';
 
 // --- 1. FIREBASE CONFIGURATION (PRODUCTION READY) ---
-// ส่วนนี้คือหัวใจสำคัญ ผมลบ Code ที่ใช้เช็ค Environment ของ Canvas ออก
-// เพื่อให้แน่ใจว่า Vercel จะใช้ Config นี้ 100% ไม่สับสนครับ
-
 const firebaseConfig = {
   apiKey: "AIzaSyASfi3V5U-1l_Wtny6lZlFIZO8-iFgJ_IY",
   authDomain: "archatara-booking.firebaseapp.com",
@@ -27,21 +24,24 @@ const firebaseConfig = {
   appId: "1:1077632757256:web:83e7aeff4f49d34011abbd"
 };
 
-// Initialize Firebase
+// Initialize Firebase (Safe Init for SSR/Vercel)
 let app, auth, db;
 let initializationError = null;
 
 try {
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
+  // Check if window is defined to avoid SSR crashes in Next.js/Vercel
+  if (typeof window !== 'undefined') {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    console.log("Firebase Initialized Successfully");
+  }
 } catch (e) {
   console.error("Firebase Initialization Failed:", e);
   initializationError = e;
 }
 
-// Helper for Firestore Paths (Simplified for Production)
-// ใช้ Path ตรงๆ ไม่ต้องคำนวณซับซ้อนแล้ว
+// Helper for Firestore Paths
 const getPath = (collectionName) => {
   return [collectionName];
 };
@@ -94,6 +94,23 @@ export default function ArchaTaraApp() {
   const [loading, setLoading] = useState(true);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
 
+  // Debugging Mount
+  useEffect(() => {
+    console.log("App Mounted. Checking config...");
+  }, []);
+
+  // 🛑 Failsafe Timeout: Force stop loading after 8 seconds to prevent white screen
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (loading) {
+        console.warn("⚠️ Loading timed out. Forcing offline mode to show UI.");
+        setLoading(false);
+        if (!user) setIsOfflineMode(true);
+      }
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [loading, user]);
+
   // 🛑 CRITICAL ERROR CHECK
   if (initializationError) {
     return (
@@ -112,49 +129,73 @@ export default function ArchaTaraApp() {
 
   // Auth
   useEffect(() => {
-    if (!auth) return;
+    if (!auth) {
+      console.warn("Auth not initialized. Switching to offline mode.");
+      setIsOfflineMode(true);
+      setLoading(false);
+      return;
+    }
+    
     const initAuth = async () => {
         try {
+          console.log("Attempting Anonymous Sign-In...");
           await signInAnonymously(auth);
-        } catch (err) { console.error("Auth Error:", err); }
+          console.log("Sign-In Successful");
+        } catch (err) { 
+          console.error("Auth Error (Will use offline mode):", err);
+          setIsOfflineMode(true);
+          setLoading(false);
+        }
     };
     initAuth();
-    return onAuthStateChanged(auth, setUser);
+    return onAuthStateChanged(auth, (u) => {
+        console.log("Auth State Changed:", u ? "User Logged In" : "No User");
+        setUser(u);
+    });
   }, []);
 
   // Fetch Data
   useEffect(() => {
     if (!user || !db) return;
     
+    console.log("Starting Data Sync...");
     // ใช้ Path ตรงๆ สำหรับ Production: 'archatara_bookings'
     const bookingPath = getPath('archatara_bookings');
 
-    const qBookings = query(collection(db, ...bookingPath), orderBy('createdAt', 'desc'));
-    const unsubBookings = onSnapshot(qBookings, (snap) => {
-      setBookings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-      setIsOfflineMode(false);
-    }, (err) => {
-      // Permission Handling
-      const isPermissionError = err.code === 'permission-denied' || err.message?.includes('Missing or insufficient permissions');
-      if (isPermissionError) {
-        console.warn("⚠️ Database permission denied. Switching to Demo Mode.");
-      } else {
-        console.error("Firestore Error:", err);
-      }
+    try {
+      const qBookings = query(collection(db, ...bookingPath), orderBy('createdAt', 'desc'));
+      const unsubBookings = onSnapshot(qBookings, (snap) => {
+        console.log(`Received ${snap.docs.length} bookings`);
+        setBookings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+        setIsOfflineMode(false);
+      }, (err) => {
+        // Permission Handling
+        const isPermissionError = err.code === 'permission-denied' || err.message?.includes('Missing or insufficient permissions');
+        if (isPermissionError) {
+          console.warn("⚠️ Database permission denied. Switching to Demo Mode.");
+        } else {
+          console.error("Firestore Error:", err);
+        }
+        setIsOfflineMode(true);
+        setLoading(false);
+      });
+
+      const settingsPath = getPath('archatara_settings');
+      getDoc(doc(db, ...settingsPath, 'config'))
+        .then(s => s.exists() && setSettings(s.data()))
+        .catch((err) => console.warn("Settings fetch error:", err));
+
+      return () => unsubBookings();
+    } catch (err) {
+      console.error("Critical Firestore Error:", err);
       setIsOfflineMode(true);
       setLoading(false);
-    });
-
-    const settingsPath = getPath('archatara_settings');
-    getDoc(doc(db, ...settingsPath, 'config'))
-      .then(s => s.exists() && setSettings(s.data()))
-      .catch((err) => console.warn("Settings fetch error:", err));
-
-    return () => unsubBookings();
+    }
   }, [user]);
 
   const handleOfflineAction = (action, data) => {
+    console.log("Offline Action:", action, data);
     if (action === 'add') setBookings([{ ...data, id: `mock_${Date.now()}`, status: 'pending', createdAt: { seconds: Date.now()/1000 } }, ...bookings]);
     else if (action === 'update') setBookings(bookings.map(b => b.id === data.id ? { ...b, ...data.updates } : b));
     else if (action === 'delete') setBookings(bookings.filter(b => b.id !== data.id));
@@ -173,7 +214,12 @@ export default function ArchaTaraApp() {
     alert("ล้างข้อมูลเรียบร้อย");
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-sky-500 w-10 h-10" /></div>;
+  if (loading) return (
+    <div className="flex flex-col h-screen items-center justify-center bg-slate-50 gap-4">
+      <Loader2 className="animate-spin text-sky-500 w-10 h-10" />
+      <p className="text-slate-400 text-sm animate-pulse">กำลังโหลดข้อมูล...</p>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-orange-200 flex flex-col relative">
